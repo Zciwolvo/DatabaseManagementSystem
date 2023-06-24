@@ -1,0 +1,167 @@
+{% extends 'base.html' %} {% block content %} {% csrf_token %}
+
+<h1>{{ table_name }}</h1>
+
+<table id="editable-table" class="table table-bordered">
+  <thead>
+    <tr>
+      {% for column in columns %}
+      <th>
+        <a
+          href="{% url 'order_table' table_name=table_name column_name=column %}"
+        >
+          {{ column }}
+        </a>
+      </th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in data %}
+    <tr>
+      {% for value in row %}
+      <td>
+        {% if forloop.first %} {{ value }} {% else %}
+        <span class="editable-cell">{{ value }}</span>
+        {% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div id="context-menu" class="dropdown-menu" style="display: none">
+  <a class="dropdown-item" href="#" data-action="modify">Modify Cell</a>
+  <a class="dropdown-item" href="#" data-action="insert">Insert New Row</a>
+  <a class="dropdown-item" href="#" data-action="delete">Delete Row</a>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+  $(document).ready(function () {
+    // Function to get the CSRF token
+    function getCookie(name) {
+      var cookieValue = null;
+      if (document.cookie && document.cookie !== "") {
+        var cookies = document.cookie.split(";");
+        for (var i = 0; i < cookies.length; i++) {
+          var cookie = cookies[i].trim();
+          if (cookie.substring(0, name.length + 1) === name + "=") {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+
+    // Context menu
+    var $contextMenu = $("#context-menu");
+
+    // Show context menu on right-click
+    $(document).on("contextmenu", ".editable-cell", function (e) {
+      e.preventDefault();
+      var $cell = $(this);
+
+      $contextMenu.css({
+        display: "block",
+        left: e.pageX,
+        top: e.pageY,
+      });
+      $contextMenu.data("cell", $cell);
+    });
+
+    // Hide context menu on click outside
+    $(document).on("click", function () {
+      $contextMenu.hide();
+    });
+
+    // Option: Modify Cell
+    $(document).on("click", "[data-action='modify']", function () {
+      var $cell = $contextMenu.data("cell");
+      var value = $cell.text().trim();
+      var $input = $('<input type="text" class="form-control">').val(value);
+      $cell.html($input);
+
+      $input.focus();
+
+      $input.blur(function () {
+        var newValue = $input.val().trim();
+        $cell.html(newValue);
+
+        if (newValue !== value) {
+          var rowData = $cell
+            .closest("tr")
+            .find("td")
+            .map(function () {
+              return $(this).text().trim();
+            })
+            .get();
+
+          $.ajax({
+            url: "{% url 'update_table' %}",
+            method: "POST",
+            headers: {
+              "X-CSRFToken": getCookie("csrftoken"),
+            },
+            data: {
+              table_name: "{{ table_name }}",
+              row_data: rowData,
+            },
+            success: function (response) {
+              console.log(response);
+            },
+            error: function (xhr, status, error) {
+              console.log(xhr.responseText);
+            },
+          });
+        }
+      });
+
+      $contextMenu.hide();
+    });
+
+    // Option: Insert New Row
+    $(document).on("click", "[data-action='insert']", function () {
+      var $cell = $contextMenu.data("cell");
+      $cell.trigger("contextmenu:insert");
+      $contextMenu.hide();
+    });
+
+    // Option: Delete Row
+    $(document).on("click", "[data-action='delete']", function () {
+      var $cell = $contextMenu.data("cell");
+      $cell.trigger("contextmenu:delete");
+      $contextMenu.hide();
+
+      var rowData = $cell
+        .closest("tr")
+        .find("td")
+        .map(function () {
+          return $(this).text().trim();
+        })
+        .get();
+
+      $.ajax({
+        url: "{% url 'delete_row' %}",
+        method: "POST",
+        headers: {
+          "X-CSRFToken": getCookie("csrftoken"),
+        },
+        data: {
+          table_name: "{{ table_name }}",
+          row_data: rowData,
+        },
+        success: function (response) {
+          console.log(response);
+        },
+        error: function (xhr, status, error) {
+          console.log(xhr.responseText);
+        },
+      });
+    });
+  });
+</script>
+
+{% endblock %}

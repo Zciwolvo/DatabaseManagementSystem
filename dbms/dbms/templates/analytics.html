@@ -1,0 +1,97 @@
+{% extends 'base.html' %} {% block content %}
+<div class="container">
+  <div class="row">
+    <div class="col-md-6">
+      <form method="POST" action="{% url 'load_tables' %}">
+        {% csrf_token %}
+        <div class="form-group">
+          <select class="form-control" name="table" id="table">
+            <option value="" selected disabled>Select a Table</option>
+            {% for table in tables %}
+            <option value="{{ table }}">{{ table }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" id="column-group" style="display: none">
+          <label for="column">Order by column:</label>
+          <select class="form-control" name="column" id="column"></select>
+          <select class="form-control" name="column-order" id="column-order">
+            <option value="" selected disabled>Choose order direction</option>
+            <option value="ASC">Ascending</option>
+            <option value="DESC">Descending</option>
+          </select>
+        </div>
+        <button style="margin-top: 10px" type="submit" class="btn btn-primary">
+          Load
+        </button>
+      </form>
+    </div>
+  </div>
+  <h1>{{ table_name }}</h1>
+  {% if table_data %}
+  <div class="row mt-4">
+    <div class="col-md-12">
+      <table class="table table-bordered">
+        <thead>
+          <tr>
+            {% for column in table_columns %}
+            <th>{{ column }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in table_data %}
+          <tr>
+            {% for value in row %}
+            <td>{{ value }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  const tableSelect = document.getElementById("table");
+  const columnSelect = document.getElementById("column");
+  const columnGroup = document.getElementById("column-group");
+
+  tableSelect.addEventListener("change", () => {
+    const selectedTable = tableSelect.value;
+
+    if (selectedTable) {
+      // Show the column select field if a table is selected
+      columnGroup.style.display = "block";
+
+      // Make the AJAX request to fetch the columns for the selected table
+      const url = `/get_columns/${selectedTable}`;
+
+      fetch(url)
+        .then((response) => response.json())
+        .then((data) => {
+          // Clear the current options
+          columnSelect.innerHTML = "";
+          // Create and append new options based on the retrieved data
+          data.forEach((column) => {
+            const option = document.createElement("option");
+            option.value = column;
+            option.textContent = column;
+            columnSelect.appendChild(option);
+          });
+        })
+        .catch((error) => {
+          console.error("Error:", error);
+        });
+    } else {
+      // Hide the column select field if no table is selected
+      columnGroup.style.display = "none";
+
+      // Clear the column options
+      columnSelect.innerHTML = "";
+    }
+  });
+</script>
+{% endblock %}
