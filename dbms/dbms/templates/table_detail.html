@@ -162,6 +162,37 @@
       });
     });
   });
+
+  // Option: Proceed with Cascade Effect
+  $(document).on(
+    "click",
+    "#cascadeEffectModal [data-action='proceed']",
+    function () {
+      $("#cascadeEffectModal").modal("hide");
+
+      // Retrieve the row data from the modal
+      var rowData = $("#cascadeEffectModal").data("rowData");
+
+      // Send the deletion request
+      $.ajax({
+        url: "{% url 'delete_row' %}",
+        method: "POST",
+        headers: {
+          "X-CSRFToken": getCookie("csrftoken"),
+        },
+        data: {
+          table_name: "{{ table_name }}",
+          row_data: rowData,
+        },
+        success: function (response) {
+          console.log(response);
+        },
+        error: function (xhr, status, error) {
+          console.log(xhr.responseText);
+        },
+      });
+    }
+  );
 </script>
 
 {% endblock %}

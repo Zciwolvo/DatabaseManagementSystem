@@ -1,9 +1,12 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.db import connection
+from django.core.exceptions import ValidationError
 from django.http import JsonResponse, HttpResponse
 from django.apps import apps
 from django.contrib import messages
 from django.db import models
+from django.db.models import ObjectDoesNotExist
+from django.utils.dateparse import parse_datetime
 
 
 def load_default(request):
@@ -61,33 +64,57 @@ def update_table(request):
 
         # Retrieve the table model based on the table name
         table_model = apps.get_model(app_label="dbms", model_name=table_name)
-        identifier_field = None
-
-        # Find the primary key field named "ID"
-        for field in table_model._meta.fields:
-            if field.primary_key:
-                identifier_field = field
-                break
-
-        if identifier_field is None:
-            return JsonResponse({"error": "Table primary key not found"}, status=404)
+        identifier_field = table_model._meta.pk
 
         try:
-            table_instance = table_model.objects.get(**{identifier_field.name: row_id})
+            table_instance = get_object_or_404(
+                table_model, **{identifier_field.name: row_id}
+            )
+
+            # Update the model instance with the new data
+            for i, column in enumerate(table_model._meta.fields):
+                if column != identifier_field:
+                    new_value = row_data[i]
+                    if column.is_relation:
+                        # Handle foreign key fields
+                        related_model = column.related_model
+                        try:
+                            related_object = related_model.objects.get(pk=new_value)
+                            setattr(table_instance, column.name, related_object)
+                        except ObjectDoesNotExist:
+                            return JsonResponse(
+                                {
+                                    "error": f"Related object not found for {column.name}"
+                                },
+                                status=400,
+                            )
+                    elif column.get_internal_type() == "DateTimeField":
+                        # Handle DateTimeField
+                        try:
+                            datetime_value = parse_datetime(new_value)
+                            if datetime_value is not None:
+                                # If a valid datetime value is parsed, assign it to the field
+                                setattr(table_instance, column.name, datetime_value)
+                            else:
+                                # If the parsing fails, try parsing as date only
+                                date_value = parse_datetime(new_value)
+                                if date_value is not None:
+                                    # If a valid date value is parsed, assign it to the field
+                                    setattr(table_instance, column.name, date_value)
+                        except ValidationError:
+                            return JsonResponse(
+                                {"error": f"Invalid datetime format for {column.name}"},
+                                status=400,
+                            )
+                    else:
+                        setattr(table_instance, column.name, new_value)
+
+            # Save the updated model instance to the database
+            table_instance.save()
+
+            return JsonResponse({"success": "Table updated successfully"})
         except table_model.DoesNotExist:
             return JsonResponse({"error": "Table not found"}, status=404)
-
-        # Update the model instance with the new data
-        for i, column in enumerate(table_model._meta.fields):
-            if column.name != identifier_field.name:
-                new_value = row_data[i]
-                if new_value:
-                    setattr(table_instance, column.name, new_value)
-
-        # Save the updated model instance to the database
-        table_instance.save()
-
-        return JsonResponse({"success": "Table updated successfully"})
     else:
         return JsonResponse({"error": "Invalid request"}, status=400)
 
@@ -120,7 +147,7 @@ def delete_row(request):
                     field_value = field.to_python(field_value)
 
                 if field_value and model.objects.filter(pk=field_value).exists():
-                    cascade_effect = True
+                    cascade_effect = True  # Assign the value here
                     cascade_models.append(model)
 
             if cascade_effect:
@@ -252,7 +279,19 @@ def order_table(request, table_name, column_name):
         row_data = [getattr(row, primary_key_field_name)]
         for name in columns:
             if name.lower() != primary_key_field_name:
-                row_data.append(getattr(row, name.lower()))
+                # Check if the field is a foreign key
+                field = table_model._meta.get_field(name.lower())
+                if field.is_relation:
+                    # Retrieve the related object
+                    related_object = getattr(row, name.lower())
+                    if related_object is not None:
+                        # Get the related field's value
+                        related_value = getattr(related_object, field.target_field.name)
+                        row_data.append(related_value)
+                    else:
+                        row_data.append(None)
+                else:
+                    row_data.append(getattr(row, name.lower()))
         table_data.append(row_data)
 
     context = {
@@ -317,7 +356,4 @@ def load_tables(request):
                 "table_data": data,
                 "table_columns": columns,
             }
-    else:
-        messages.error(request, "Table must be selected")
-
     return render(request, "analytics.html", context)
